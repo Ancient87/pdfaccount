@@ -1,6 +1,8 @@
 #!/usr/bin/python
 #coding=utf-8
 
+#TODO: TILDA
+
 import pdftotext
 import re
 import string
@@ -59,14 +61,14 @@ class Account:
     def __str__(self):
         return self.sections
 
-    def totsv(self):
-        output = ["Category\tItem\tDate\tValue\tMyShare{0})\n".format(MY_SHARE)]
+    def tosv(self, delim=","):
+        output = ["Category{0}Item{0}Date{0}Value{0}MyShare{1}){0}".format(delim, MY_SHARE)]
         for s in self.sections:
-            output.append("{0}\t\t\t\t\n".format(s.name))
+            output.append("{1}{0}{0}{0}{0}\n".format(delim, s.name))
             for c in s.categories:
                 for i in c.items:
                     date = "{0}/{1}/{2}".format(i.date.day, i.date.month, i.date.year)
-                    output.append("{0}\t{1}\t{2}\t{3}\t{4}\n".format(c.name, i.item, date, i.value, i.value*MY_SHARE))
+                    output.append("{1}{0}{2}{0}{3}{0}{4}{0}{5}\n".format(delim, c.name, i.item, date, i.value, i.value*MY_SHARE))
         return output
 
 
@@ -285,8 +287,8 @@ if __name__ == "__main__":
     for acc in accounts:
         print(acc.property)
         name = acc.property
-        tsv = acc.totsv()
+        tsv = acc.tosv(",")
         #print(tsv)
-        with open("output/{0}.tsv".format(name), "w+") as w:
+        with open("output/{0}.csv".format(name), "w+") as w:
             w.writelines(tsv)
 
