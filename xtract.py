@@ -9,8 +9,8 @@ import pdb
 import os
 
 SECTION_RE = re.compile("[IV]+\.\s([a-zA-Z]+)\s+-\s+([a-zA-z]+)$")
-CATEGORY_RE = re.compile("[0-9]+\s(.*)$")
-EINNAHMEN_RE = re.compile("([a-zA-Z]+)\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+)")
+CATEGORY_RE = re.compile("([0-9]+\s.*)$")
+EINNAHMEN_RE = re.compile("([a-zA-Z]+)[\s']*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+)")
 AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+)")
 MY_SHARE = float("0.1667")
 PROP_RE = re.compile("Liegenschaft.*[:](.*)$")
@@ -136,7 +136,7 @@ def sanitise_number(num):
     return float(num)
 
 def build_item(m):
-    print("1:{0} 2:{1} 3:{2}".format(m.group(1), m.group(2), m.group(3)))
+    #print("1:{0} 2:{1} 3:{2}".format(m.group(1), m.group(2), m.group(3)))
     num = sanitise_number(m.group(3))
     myshare = num*MY_SHARE
     return {"item": m.group(1), "date": m.group(2), "value": num, "my_share": myshare}
@@ -170,8 +170,15 @@ def parse_section(lines):
         line.strip()
         m = CATEGORY_RE.match(line)
         if m:
-            print(line)
-            categories[category_name] = parse_category(category_text)
+            #print(line)
+            items = parse_category(category_text)
+            merged = []
+            if category_name in categories.keys():
+                print("=========== WE EXIST ALREADY {0}".format(category_name))
+                merged = categories[category_name] + items
+            else:
+                merged = items
+            categories[category_name] = merged
             category_text = []
             category_name = m.group(1)
         category_text.append(line)
@@ -203,12 +210,12 @@ def parse_abrechnung(lines):
         if not tagged:
             m = PROP_RE.match(line)
             if m:
-                print("PROP_RE {0}".format(line))
+                #print("PROP_RE {0}".format(line))
                 tagged = True
                 prop = m.group(1).strip()
         m = SECTION_RE.match(line)
         if m:
-          print("About to parse {0}".format(section_name))
+          #print("About to parse {0}".format(section_name))
           sections[section_name] = parse_section(section_text)
           section_text = []
           section_name = m.group(1)
@@ -280,6 +287,6 @@ if __name__ == "__main__":
         name = acc.property
         tsv = acc.totsv()
         #print(tsv)
-        with open("{0}.tsv".format(name), "w+") as w:
+        with open("output/{0}.tsv".format(name), "w+") as w:
             w.writelines(tsv)
 
