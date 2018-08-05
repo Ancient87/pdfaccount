@@ -13,7 +13,7 @@ CATEGORY_RE = re.compile("[0-9]+\s(.*)$")
 EINNAHMEN_RE = re.compile("([a-zA-Z]+)\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+)")
 AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+)")
 MY_SHARE = float("0.1667")
-PROP_RE = re.compile("Liegenschaft\s*[:](.*)$")
+PROP_RE = re.compile("Liegenschaft.*[:](.*)$")
 OWNER_RE = re.compile("Eigen.*[:](.*)$")
 
 def parse_date(d):
@@ -23,20 +23,21 @@ def parse_date(d):
     return date(d[2], d[1], d[0])
 
 def parse_ds(parsed):
-    a = Account("Sev")
+    a = Account()
     a.owner = parsed["owner"]
-    a.propery = parsed["property"]
+    a.property = parsed["property"]
     sections = parsed["sections"]
     for section in sections:
         s = Section(section)
         a.sections.append(s)
-        section = parsed[section]
+        section = sections[section]
         for category in section:
             c = Category(category)
             category = section[category]
             for item in category:
                 c.items.append(Item(item["item"], item["date"], item["value"]))
             s.categories.append(c)
+    print("ACCOUNTED FOR {0} {1}".format(a.owner, a.property))
     return a
 
 class Item:
@@ -50,9 +51,9 @@ class Item:
         return "{0}, {1}, {2}".format(self.item, self.date, self.value)
 
 class Account:
-    def __init__(self, owner, prop):
-        self.owner = owner
-        self.property = prop
+    def __init__(self):
+        self.owner = ""
+        self.property = ""
         self.sections = []
 
     def __str__(self):
@@ -198,13 +199,13 @@ def parse_abrechnung(lines):
             m = OWNER_RE.match(line)
             if m:
                 named = True
-                owner = m.group(0).strip()
+                owner = m.group(1).strip()
         if not tagged:
             m = PROP_RE.match(line)
             if m:
+                print("PROP_RE {0}".format(line))
                 tagged = True
-                prop = m.group(0).strip()
-
+                prop = m.group(1).strip()
         m = SECTION_RE.match(line)
         if m:
           print("About to parse {0}".format(section_name))
@@ -213,8 +214,8 @@ def parse_abrechnung(lines):
           section_name = m.group(1)
         section_text.append(line)
     #EOF
-    print("About to parse {0}".format(section_name))
     sections[section_name] = parse_section(section_text)
+    print("OWNER: {0} PROPERTY: {1}".format(owner, prop))
     return {"owner": owner, "sections": sections, "property": prop}
 
 def pretty_output(parsed):
@@ -271,10 +272,14 @@ if __name__ == "__main__":
             file_name = i[0]
             pages = i[1]
             ocr_name = convert_and_ocr(file_name, pages)
-            accounts.append(extract_and_ds(ocr_name))
+            acc = extract_and_ds(ocr_name)
+            print("{0}".format(acc.owner))
+            accounts.append(acc)
     for acc in accounts:
+        print(acc.property)
         name = acc.property
         tsv = acc.totsv()
+        #print(tsv)
         with open("{0}.tsv".format(name), "w+") as w:
             w.writelines(tsv)
 
