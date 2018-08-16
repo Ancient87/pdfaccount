@@ -18,7 +18,7 @@ CATEGORY_RE = re.compile("^\s*([0-9]+)\s.*$")
 # Here is something more clever
 #EINNAHMEN_RE = re.compile("([a-zA-Z]+)[\s']*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+)")
 #EINNAHMEN_RE = re.compile("(\S+)\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+,[0-9]{2})$")
-EINNAHMEN_RE = re.compile("(.*?)\s([0-3][1-9]\.[0-2][0-9]\.[0-9]{4}).*?([0-9]+,[0-9]{2}$)")
+EINNAHMEN_RE = re.compile("(.*?)\s([0-3][1-9]\.[0-2][0-9]\.[0-9]{4}).*?([0-9,.]+,[0-9]{2}$)")
 
 AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+)")
 ITEM_RE = re.compile("([0-9,.]+[.,][0-9][0-9])$")
@@ -171,7 +171,7 @@ class Account:
             for c in sorted(s.categories, key = lambda x: x.at_code):
                 for i in c.items:
                     date = "{0}/{1}/{2}".format(i.date.day, i.date.month, i.date.year)
-                    output.append("{1}{0}{2}{0}{3}{0}{4}{0}{5}\n".format(delim, c.name, i.item, date, i.value, i.value*MY_SHARE))
+                    output.append("{1}{0}{2}{0}{3}{0}{4}{0}{5}\n".format(delim, c.name, i.item, date, i.value/100, i.value/100*MY_SHARE))
         return output
 
     # Takes a date object and returns YYYYMM
@@ -184,16 +184,22 @@ class Account:
         for month, pb_category in items_per_month.items():
             text.append("{0}\n".format(month))
             text += to_delim(["Date","Category","AT_CATEGORY","Item","Value"], delim)
+            month_running_total = 0.00
             for cat, items in pb_category.items():
-                running_total = 0.0
+  #              print("Cat Add-Up {0}".format(cat))
+                cat_running_total = 0.00
                 for item in items:
-                    text += to_delim([item.date, cat, item.parent_cat.name, item.item, item.value], delim)
-                    running_total += item.value
+                    text += to_delim([item.date, cat, "{0} : {1}".format(item.parent_cat.at_code,item.parent_cat.name), item.item, item.value/100], delim)
+ #                   print("item value = {0}".format(item.value))
+                    cat_running_total += item.value
+                month_running_total += cat_running_total
             #print("RT for {1} = {0}".format(cat, running_total))
             # HACK to build the final line
             x = ["" for i in range(0,4)]
-            x.append(running_total)
+            x.append(month_running_total/100)
             text += to_delim(x, ",")
+#            print("Toal for {0} =  {1}".format(cat, month_running_total/100))
+
         return text
 
     # Returns text for  the total per month and PB category takes in  items_per_month[month][category] = <Item>
@@ -202,14 +208,15 @@ class Account:
         # Print the headline
         header = ["Date", "Period",""] + PBCAT_ARR
         text += to_delim(header)
-        for month, pb_category in items_per_month.items():
-            line = [month, "", ""]
+        for month in sorted(items_per_month):
+            pb_category = items_per_month[month]
+            line = ["{0}-{1}".format(month.year, month.month), "", ""]
             for cat in PBCAT_ARR:
                 running_total = 0.0
                 if cat in pb_category:
                     for item in pb_category[cat]:
                         running_total += item.value
-                line.append(running_total)
+                line.append(running_total/100)
             text += to_delim(line)
         return text
 
@@ -236,7 +243,8 @@ class Account:
                 pb_category = TRANSLATIONS_DICT[at_category.at_code][2]
             date = i.date
             # extract the month and year in YYYYMM
-            year_month = self.get_year_month(date)
+            #year_month = self.get_year_month(date)
+            year_month = date.replace(day=1)
             # Holds all the cateogires in the given month
             cat_in_month = {}
             # add to month_year if it exists
@@ -296,12 +304,19 @@ class Section:
 
 # Helper to clean up and remove pointless . and ,
 def sanitise_number(num):
+    print("The number {0}".format(num))
     #print("Number {0}".format(num))
     num = num.replace(",", "")
     num = num.replace(".", "")
-    num = "{0}.{1}".format(num[0:-2],num[-2])
-    #print(num)
-    return float(num)
+    #num = "{0}.{1}".format(num[0:-2],num[-2])
+    whole = int(num[0:-2])*100
+    parts = int((num[-2:]))
+    print("\t Whole {0}".format(whole))
+    print("\t parts {0}".format(parts))
+    num = whole + parts
+
+    print("The conversion {0}".format(num))
+    return num
 
 # Helper to create data_structure for an accounting item TODO: Should this be the constructor of Item?
 def build_item(m, expense = True):
