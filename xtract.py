@@ -20,13 +20,15 @@ CATEGORY_RE = re.compile("^\s*([0-9]+)\s.*$")
 #EINNAHMEN_RE = re.compile("(\S+)\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+,[0-9]{2})$")
 EINNAHMEN_RE = re.compile("(.*?)\s([0-3][1-9]\.[0-2][0-9]\.[0-9]{4}).*?([0-9,.]+,[0-9]{2}$)")
 
-AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+)")
+#AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+)")
+AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+,[0-9]{2})")
 ITEM_RE = re.compile("([0-9,.]+[.,][0-9][0-9])$")
 
 MY_SHARE = float("0.1667")
 PROP_RE = re.compile("Liegenschaft.*[:](.*)$")
 OWNER_RE = re.compile("Eigen.*[:](.*)$")
 AMOUNT_RE = re.compile("(,[0-9]{2})$")
+DATE_RE = re.compile("[0-3][0-9]\.[0-1][0-9]\.[0-9]{4}")
 ###################### STATICS FOR GLOBALS and DEFINITIONS ###############
 
 #TODO: Factor out - for now makes parsing easier as we just need to OCR the ID"
@@ -323,9 +325,16 @@ def build_item(m, expense = True):
     #print("1:{0} 2:{1} 3:{2}".format(m.group(1), m.group(2), m.group(3)))
     num = sanitise_number(m.group(3))
     myshare = num*MY_SHARE
+
+    # Hack to find thr latest occuring DATE 
+    date = m.group(2)
+    md = DATE_RE.findall(m.group(0))
+    if md:
+        date = md[-1]
+
     if expense:
         num *= -1
-    return {"item": m.group(1), "date": m.group(2), "value": num, "my_share": myshare}
+    return {"item": m.group(1), "date": date, "value": num, "my_share": myshare}
 
 
 ###################################### PARSING OF OCRED TEXT ################################
