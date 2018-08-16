@@ -48,12 +48,11 @@ TRANSLATIONS_DICT = {
         '84002':['Kapitalertragssteuer (KESt)','Capital Gains tax appreciation write-off','TBC'],
 }
 
-
-
 # Items PB are interested in
 PBCAT_ARR = [
     'Rent Received',
     'Other Income',
+    '',
     'Council Tax',
     'Water Rates',
     'Electricity Rates',
@@ -116,7 +115,7 @@ def parse_ds(parsed):
             else:
                 print("Category '{0}' not found".format(category))
     
-            print("ACCOUNTED FOR {0} {1}".format(a.owner, a.property))
+            #print("ACCOUNTED FOR {0} {1}".format(a.owner, a.property))
     return a
 
 # DS to represent a line item in the accounts
@@ -129,6 +128,20 @@ class Item:
 
     def __str__(self):
         return "{0}, {1}, {2}".format(self.item, self.date, self.value)
+
+def replace_right(source, target, replacement, replacements=1):
+        return replacement.join(source.rsplit(target, replacements))
+
+# Returns a delimited and \n version of the list
+def to_delim(vals, delim=",", newline = True):
+    line = ""
+    nl = ""
+    if newline:
+        nl = "\n"
+    print("vals {0}".format(vals))
+    for v in vals:
+        line += "{0}{1}".format(v, delim)
+    return replace_right(line, delim, "\n")
 
 # DS to represent a portfolio of properties
 class Account:
@@ -144,20 +157,105 @@ class Account:
         output = ["Category{0}Item{0}Date{0}Value{0}MyShare{1}){0}".format(delim, MY_SHARE)]
         for s in self.sections:
             output.append("{1}{0}{0}{0}{0}\n".format(delim, s.name))
+#            output.append(to_delim([]
             for c in s.categories:
                 for i in c.items:
                     date = "{0}/{1}/{2}".format(i.date.day, i.date.month, i.date.year)
                     output.append("{1}{0}{2}{0}{3}{0}{4}{0}{5}\n".format(delim, c.name, i.item, date, i.value, i.value*MY_SHARE))
         return output
 
-    # Outputs delimeted view for PB i.e. For each month (row) all their categories summed
-    def to_pb(self, delim=","):
+    # Takes a date object and returns YYYYMM
+    def get_year_month(self, date, delim=","):
+        return "{0}_{1}".format(date.year, date.month)
+
+    # Returns text for the items per month and PB category takes in items_per_month[month][category] = <Item>
+    def to_pb_detail(self, items_per_month, delim=","):
+        text = []
+        for month, pb_category in items_per_month.items():
+            text.append("{0}\n".format(month))
+            text += to_delim(["Date","Category","AT_CATEGORY","Item","Value"], delim)
+            for cat, items in pb_category.items():
+                running_total = 0.0
+                for item in items:
+                    text += to_delim([item.date, cat, item.parent_cat.name, item.item, item.value], delim)
+                    running_total += item.value
+            print("RT for {1} = {0}".format(cat, running_total))
+            # HACK to build the final line
+            x = ["" for i in range(0,4)]
+            x.append(running_total)
+            text += to_delim(x, ",")
+        return text
+
+    # Returns text for  the total per month and PB category takes in  items_per_month[month][category] = <Item>
+    def to_pb_summary(self, items_per_month, delim=","):
+        text = []
+        # Print the headline
+        header = ["Date", "Period",""] + PBCAT_ARR
+        text += to_delim(header)
+        for month, pb_category in items_per_month.items():
+            line = [month, "", ""]
+            for cat in PBCAT_ARR:
+                running_total = 0.0
+                if cat in pb_category:
+                    for item in pb_category[cat]:
+                        running_total += item.value
+                line.append(running_total)
+            text += to_delim(line)
+        return text
+
+    # Groups items per month and AT and PB category
+    def by_month_cat(self):
         # We'd like a DS to build an index of their categories per month i.e. pb[month][cat] = items 
         # Then we can both do detailed breakdown and/or calculate the sum of these items
 
-        # First step is to get all items across all categories per month
+        # First step is to get all items across all categories broken down per month
+        items_per_month = {}
+        # We need to go through all items and cats and amalgamate them
+        all_items = []
+        for s in self.sections:
+            for c in s.categories:
+                all_items += c.items
 
+        # Now we need to break down items per month and category
+        for i in all_items:
+            # Get parent category
+            at_category = i.parent_cat
+            # Translate AT to PB category
+            pb_category = "UNDEFINED {0}".format(at_category.at_code)
+            if at_category.at_code in TRANSLATIONS_DICT:
+                pb_category = TRANSLATIONS_DICT[at_category.at_code][2]
+            date = i.date
+            # extract the month and year in YYYYMM
+            year_month = self.get_year_month(date)
+            # Holds all the cateogires in the given month
+            cat_in_month = {}
+            # add to month_year if it exists
+            if year_month in items_per_month:
+                cat_in_month = items_per_month[year_month]
+            # Initialise empty
+            else:
+                items_per_month[year_month] = cat_in_month
 
+            # Add item to PB parent category in this month's category
+            items_in_cat = []
+            if pb_category in cat_in_month:
+                items_in_cat = cat_in_month[pb_category]
+            else:
+                cat_in_month[pb_category] = items_in_cat
+            # Append to the list
+            print("Items {0}".format(i.item))
+            items_in_cat.append(i)
+
+        # Return is UNSORTED sort it yoruself if you want it
+        return items_per_month 
+
+    # Sort the items held in a DS returned by by_month_cat ascending by YYYY_MM IN-PLACE!
+    def by_month_cat_sorted(self, items_per_month):
+        for k, v in items_per_month.items():
+            for cat, items in v.items():
+                v[cat] = sorted(items, key=lambda item: item.date)
+
+        return items_per_month
 
 
 # DS to represent all types of category in AT tax and to map it to a PB cat
@@ -356,7 +454,7 @@ def output_long_csv(accounts):
         name = acc.property
         tsv = acc.tosv(",")
         #print(tsv)
-        with open("output-long/{0}.csv".format(name), "w+") as w:
+        with open("output/long-{0}.csv".format(name), "w+") as w:
             w.writelines(tsv)
 
 # Calculates PB per month and outputs in a format useful for that
@@ -364,9 +462,13 @@ def output_per_pb(accounts):
     # Loop through each property in the account
     for property in accounts:
         name = acc.property
-        tsv = acc.to_pb(",")
+        pbed = acc.by_month_cat()
+        pbed = acc.by_month_cat_sorted(pbed)
+        tsv = acc.to_pb_detail(pbed)
+        tsv += acc.to_pb_summary(pbed)
+
         # Output the file as CSV
-        with open("output-PB/{0}.csv".format(name), "w+") as w:
+        with open("output/pb-{0}.csv".format(name), "w+") as w:
             w.writelines(tsv)
 
 
@@ -396,4 +498,4 @@ if __name__ == "__main__":
             accounts.append(acc)
     # Orchestrate output as CSV for all properties in portfolio
     output_long_csv(accounts)
-    
+    pbed = output_per_pb(accounts)
