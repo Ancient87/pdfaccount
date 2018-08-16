@@ -15,12 +15,18 @@ import os
 SECTION_RE = re.compile("[IV]+\.\s([a-zA-Z]+)\s+-\s+([a-zA-z]+)$")
 # IN PROGRESS: Changing this for the new category parsing
 CATEGORY_RE = re.compile("^\s*([0-9]+)\s.*$")
-EINNAHMEN_RE = re.compile("([a-zA-Z]+)[\s']*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+)")
+# Here is something more clever
+#EINNAHMEN_RE = re.compile("([a-zA-Z]+)[\s']*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+)")
+#EINNAHMEN_RE = re.compile("(\S+)\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+,[0-9]{2})$")
+EINNAHMEN_RE = re.compile("(.*?)\s([0-3][1-9]\.[0-2][0-9]\.[0-9]{4}).*?([0-9]+,[0-9]{2}$)")
+
 AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+)")
+ITEM_RE = re.compile("([0-9,.]+[.,][0-9][0-9])$")
+
 MY_SHARE = float("0.1667")
 PROP_RE = re.compile("Liegenschaft.*[:](.*)$")
 OWNER_RE = re.compile("Eigen.*[:](.*)$")
-
+AMOUNT_RE = re.compile("(,[0-9]{2})$")
 ###################### STATICS FOR GLOBALS and DEFINITIONS ###############
 
 #TODO: Factor out - for now makes parsing easier as we just need to OCR the ID"
@@ -30,6 +36,7 @@ TRANSLATIONS_DICT = {
         '40002':['Erlöse Mietzinse','Income from rent','Rent Received'],
         '40042':['Erlïöse Geschäftsraummiete','Income from rent commercial units','Rent Received'],
         '40061':['Erlöse Hauptmietzins frei vereinbart (ABGB)','Income from rent fixed rate','Rent Received'],
+        '40200':['Erlöse Garagenmiete','Income from renting garage','Rent Received'],
         '40202':['Erlöse Garagenmiete','Income from renting garage','Rent Received'],
         '40410':['Erlöse Gartenmiete','Income from rent garden units','Rent Received'],
         '57050':['Energiekosten - Leerstehung','Energy costs due to being vacant','TBC'],
@@ -37,15 +44,17 @@ TRANSLATIONS_DICT = {
         '73000':['Rechts- und Beratungsaufwand','Legal fees','Legal Fees'],
         '74000':['Steuerberatungskosten','Tax accountancy fees','Accountancy Fees'],
         '40450':['Erlöse Waschküche','Income from laundromat','Rent Received'],
+        '77001':['Versicherungschäden - Refundierungen','Insurance claims refunds','TBC'],
         '77000':['Versicherungschäden - Aufwendungen','Fees towards Insurance claims','TBC'],
         '78000':['Sonstige Aufwendungen 00%','Sundry expenses @0%','Sundry'],
         '78001':['Sonstige Aufwendungen 10%','Sundry expenses @10%','Sundry'],
         '78002':['Sonstige Aufwendungen 20%','Sundry expenses @20%','Sundry'],
-        '79000':['Leerstehungsaufwand','Contribution due to being vacant','TBC'],
+        '79000':['Leerstehungsauï¬mand','Contribution due to being vacant','TBC'],
         '79200':['Vorsteuern - unecht steuerfreie Umsätze','Costs deducted pre-tax ','TBC'],
         '84000':['Bankzinsen','Bank interest','Other Income'],
         '84001':['Bankspesen','Bank transaction fees','TBC'],
         '84002':['Kapitalertragssteuer (KESt)','Capital Gains tax appreciation write-off','TBC'],
+
 }
 
 # Items PB are interested in
@@ -69,6 +78,7 @@ PBCAT_ARR = [
     'Gardening',
     'Travel/Milage',
     'Sundry',
+    'TBC',
 ]
 
 #Helper to convert AT notation into date data_structure
@@ -138,7 +148,7 @@ def to_delim(vals, delim=",", newline = True):
     nl = ""
     if newline:
         nl = "\n"
-    print("vals {0}".format(vals))
+    #print("vals {0}".format(vals))
     for v in vals:
         line += "{0}{1}".format(v, delim)
     return replace_right(line, delim, "\n")
@@ -158,7 +168,7 @@ class Account:
         for s in self.sections:
             output.append("{1}{0}{0}{0}{0}\n".format(delim, s.name))
 #            output.append(to_delim([]
-            for c in s.categories:
+            for c in sorted(s.categories, key = lambda x: x.at_code):
                 for i in c.items:
                     date = "{0}/{1}/{2}".format(i.date.day, i.date.month, i.date.year)
                     output.append("{1}{0}{2}{0}{3}{0}{4}{0}{5}\n".format(delim, c.name, i.item, date, i.value, i.value*MY_SHARE))
@@ -179,7 +189,7 @@ class Account:
                 for item in items:
                     text += to_delim([item.date, cat, item.parent_cat.name, item.item, item.value], delim)
                     running_total += item.value
-            print("RT for {1} = {0}".format(cat, running_total))
+            #print("RT for {1} = {0}".format(cat, running_total))
             # HACK to build the final line
             x = ["" for i in range(0,4)]
             x.append(running_total)
@@ -243,7 +253,7 @@ class Account:
             else:
                 cat_in_month[pb_category] = items_in_cat
             # Append to the list
-            print("Items {0}".format(i.item))
+            #print("Items {0}".format(i.item))
             items_in_cat.append(i)
 
         # Return is UNSORTED sort it yoruself if you want it
@@ -294,10 +304,12 @@ def sanitise_number(num):
     return float(num)
 
 # Helper to create data_structure for an accounting item TODO: Should this be the constructor of Item?
-def build_item(m):
+def build_item(m, expense = True):
     #print("1:{0} 2:{1} 3:{2}".format(m.group(1), m.group(2), m.group(3)))
     num = sanitise_number(m.group(3))
     myshare = num*MY_SHARE
+    if expense:
+        num *= -1
     return {"item": m.group(1), "date": m.group(2), "value": num, "my_share": myshare}
 
 
@@ -306,14 +318,21 @@ def build_item(m):
 # Parse a line item
 def parse_item(line):
     item = {}
-    # Check Einnahme
-    m = EINNAHMEN_RE.match(line)
-    if m:
-        return build_item(m)
-    # Check Ausgabe
+    # Check items
+    #HACK/TODO: Make the regex cleaner but for now just exclude anything containing "Summe"
+    # if "Summe" in line:
+    #    return
     m = AUSGABEN_RE.match(line)
     if m:
         return build_item(m)
+    m = EINNAHMEN_RE.match(line)
+    if m:
+        return build_item(m, False)
+    # Check Ausgabe
+    m = AMOUNT_RE.search(line)
+    if m:
+        if not "Summe" in line:
+            print("ITEM WITH AMOUNT DID NOT MATCH : {0}".format(line))
 
 # Parse an entire category
 def parse_category(lines):
@@ -325,6 +344,14 @@ def parse_category(lines):
             items.append(item)
     return items
 
+# It's 8 p.m. and I'm a bit fed up
+def unfuz_line(line):
+    line = re.sub('[_~—]', '-', line)
+    line = re.sub(' , ', ' - ', line)
+    line = re.sub(' [a-zA-Z] ', ' - ', line)
+    line = re.sub('Somme', 'Summe', line)
+    return line
+
 # Parse a section
 def parse_section(lines):
     #print(lines)
@@ -333,6 +360,7 @@ def parse_section(lines):
     category_name = ""
     category_text = []
     for line in lines:
+        line = unfuz_line(line)
         line.strip()
         # EXTRACT CATEGORY ID
         m = CATEGORY_RE.match(line)
@@ -460,13 +488,13 @@ def output_long_csv(accounts):
 # Calculates PB per month and outputs in a format useful for that
 def output_per_pb(accounts):
     # Loop through each property in the account
-    for property in accounts:
+    for acc in accounts:
         name = acc.property
         pbed = acc.by_month_cat()
         pbed = acc.by_month_cat_sorted(pbed)
         tsv = acc.to_pb_detail(pbed)
         tsv += acc.to_pb_summary(pbed)
-
+        print("PB {0}".format(name))
         # Output the file as CSV
         with open("output/pb-{0}.csv".format(name), "w+") as w:
             w.writelines(tsv)
