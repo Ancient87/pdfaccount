@@ -1,4 +1,4 @@
-#!/usr/bin/python
+
 #coding=utf-8
 
 #TODO: TILDA
@@ -9,6 +9,19 @@ import string
 from datetime import date
 import pdb
 import os
+import logging
+import PyPDF2
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(levelname)s - line:%(lineno)d %(message)s')
+
+# add formatter to ch
+ch.setFormatter(formatter)
+
+logger = logging.getLogger("root")
+logger.setLevel(logging.DEBUG)
+logger.addHandler(ch)
 
 # TODO: Factor this out
 ##################### REGEXES FOR PARSING ##############################
@@ -165,6 +178,20 @@ class Account:
     def __str__(self):
         return self.sections
 
+    def tosv_xls(self, delim=","):
+        output = [f"SMT Category{delim}Date{delim}Item{delim}Value{delim}\n"]
+        
+        #Go through the sections and print them
+        for section in self.sections:
+            for category in section.categories:
+                smt_category = category.name
+                for item in category.items:
+                    date = item.date
+                    i = item.item
+                    value = item.value
+                    output.append(f"{smt_category}{delim}{date}{delim}{i}{delim}{value}{delim}\n")
+        return output
+
     def tosv(self, delim=","):
         output = ["Category{0}Item{0}Date{0}Value{0}MyShare{1}){0}".format(delim, MY_SHARE)]
         for s in self.sections:
@@ -306,19 +333,22 @@ class Section:
 
 # Helper to clean up and remove pointless . and ,
 def sanitise_number(num):
-    print("The number {0}".format(num))
+    #print("The number {0}".format(num))
     #print("Number {0}".format(num))
-    num = num.replace(",", "")
     num = num.replace(".", "")
+    number = num.replace(",", ".")
     #num = "{0}.{1}".format(num[0:-2],num[-2])
-    whole = int(num[0:-2])*100
-    parts = int((num[-2:]))
-    print("\t Whole {0}".format(whole))
-    print("\t parts {0}".format(parts))
-    num = whole + parts
-
-    print("The conversion {0}".format(num))
-    return num
+    try:
+        #whole = int(number[0:-2])*100
+        #parts = int((number[-2:]))
+    #print("\t Whole {0}".format(whole))
+    #print("\t parts {0}".format(parts))
+        #number = whole + parts
+        number = float(number)
+    except ValueError as e:
+        logger.debug(f"It broke num {num} number {number} {e}")
+    #print("The conversion {0}".format(num))
+    return number
 
 # Helper to create data_structure for an accounting item TODO: Should this be the constructor of Item?
 def build_item(m, expense = True):
@@ -371,7 +401,7 @@ def parse_category(lines):
 # It's 8 p.m. and I'm a bit fed up
 def unfuz_line(line):
     line = re.sub('[_~—]', '-', line)
-    line = re.sub(' , ', ' - ', line)
+    #line = re.sub(' , ', ' - ', line)
     line = re.sub(' [a-zA-Z] ', ' - ', line)
     line = re.sub('Somme', 'Summe', line)
     return line
@@ -390,8 +420,8 @@ def parse_section(lines):
         m = CATEGORY_RE.match(line)
         # IF this is a new section process the last and start again
         if m:
-#            print("We matched Category {0} - {1}".format(line, m.group(1)))
-#            print("Calling parse_cateogy for {0}".format(category_text))
+            logger.debug(f"We matched Category {line} - {m.group(1)}")
+            logger.debug(f"Calling parse_category for {category_text}")
             items = parse_category(category_text)
             merged = []
             # If we are already building this we need to merge
@@ -406,11 +436,14 @@ def parse_section(lines):
             category_text = []
             category_name = m.group(1)
         # Add the current line to the current cateogry (indepent of if we are in a new category now or not)
+        logger.debug(f"Not a section {line}")
         category_text.append(line)
 
     # DICT of category name to list of all line items
     # TODO: category_name is really an ID now
     categories[category_name] = parse_category(category_text)
+    logger.debug(f"Categories are {categories.keys()}")
+    #pdb.set_trace()
     return categories
 
 # Parse an entire property
@@ -444,13 +477,17 @@ def parse_abrechnung(lines):
         # Check for section heading
         m = SECTION_RE.match(line)
         if m:
-          #print("About to parse {0}".format(section_name))
+          logger.debug(f"About to parse {section_name}")
           sections[section_name] = parse_section(section_text)
+          #pdb.set_trace()
           section_text = []
           section_name = m.group(1)
         section_text.append(line)
     #At EOF process text in buffer as a section
+    
     sections[section_name] = parse_section(section_text)
+    logger.debug(f"Sections for {prop} are {sections.keys()}")
+    #pdb.set_trace()
     print("OWNER: {0} PROPERTY: {1}".format(owner, prop))
     return {"owner": owner, "sections": sections, "property": prop}
 
@@ -458,35 +495,55 @@ def parse_abrechnung(lines):
 
 def pretty_output(parsed):
     for section in parsed:
-        print "===={0}===".format(section)
+        print("===={0}===".format(section))
         section = parsed[section]
         for category in section:
-            print "++++ {0} ++++".format(category)
+            print("++++ {0} ++++".format(category))
             category = section[category]
             for item in category:
-                print item
+                print(item)
 
 ###################################### READ RAW INPUT FROM FILES #####################
 
 # Reads OCRed text and orchestrates parsing
 def extract_and_ds(ocr_name):
     account = None
-    with open(ocr_name, "rb") as f:
+    with open(ocr_name, "r") as f:
         lines = f.readlines()
         parsed = parse_abrechnung(lines)
         account = parse_ds(parsed)
     return account
 
+def extract_to_text(file_name, from_Page):
+    d = "tmp"
+    fpath = "{0}/{1}ocr.txt".format(d, file_name)
+    if os.path.isfile(fpath):
+        return fpath
+    else:
+        with open(file_name, 'rb') as f, open(fpath, 'wb') as t:
+            #pdb.set_trace()
+            read_pdf = PyPDF2.PdfFileReader(f)
+            pages = read_pdf.getNumPages()
+            for p in range(int(from_Page), pages+1):
+                page = read_pdf.getPage(p)
+                page_content = page.extractText()
+                t.writelines(page_content)
+                
+        return fpath
+
 # Takes the PDFs and manages them being OCRED
 def convert_and_ocr(file_name, pages):
+    x = f"Hiya glumanda {file_name} lol {pages}"
+    logger.debug(x)
     file_name = file_name.split(".")[0]
+    logger.debug(f"{file_name}")
     d = "tmp"
     fpath = "{0}/{1}ocr.txt".format(d, file_name)
     if os.path.isfile(fpath):
         return fpath
     print("file:{0} pages:{1}".format(file_name, pages))
     #pdftk abrechnung.pdf cat 7-9 output abrechnung_lang.pdf
-    c = "pdftk {1}.pdf cat {2} output {0}/{1}lang".format(d, file_name, pages)
+    c = "pdfjam {1}.pdf {2}- -o {0}/{1}lang".format(d, file_name, pages)
     print(c)
     os.system(c)
     #convert -density 300 abrechnung_lang.pdf -depth 8 -strip -background white -alpha off file.tiff
@@ -494,10 +551,19 @@ def convert_and_ocr(file_name, pages):
     print("Convert {0}".format(c))
     os.system(c)
     #tesseract file.tiff output.text -psm 6
-    c = "tesseract {0}/{1}.tiff {0}/{1}ocr -psm 6".format(d, file_name)
+    c = "tesseract {0}/{1}.tiff {0}/{1}ocr -psm 6 -l deu".format(d, file_name)
     print("OCR {0}".format(c))
     os.system(c)
     return fpath
+
+# Outputs the account for PB excel (2018/2019)
+def output_pb_xls(accounts: Account) -> None:
+    for acc in accounts:
+        name = acc.property
+        logger.debug(f"{name}")
+        tsv = acc.tosv_xls(",")
+        with open(f"output/xls-{name}.csv", "w+") as w:
+            w.writelines(tsv)
 
 # Outputs the account in long form
 def output_long_csv(accounts):
@@ -535,19 +601,31 @@ if __name__ == "__main__":
     # TODO: HACKY AT THIS LOCATION -INIT CATEGORY DICT
     #init_cat()
     
+    if not os.path.isdir('tmp'):
+        os.makedirs('tmp')
+    if not os.path.isdir('output'):
+        os.makedirs('output')
+    
     # READ CONFIG AND PROCESS PDFS
-    with open("file_config", "rb") as config:
+    with open("file_config", "r") as config:
         lines = config.readlines()
         for line in lines:
+            print(line)
             line = line.strip().split(":")
             cfg.append((line[0], line[1]))
+        print(cfg)
         for i in cfg:
+            #pdb.set_trace()
             file_name = i[0]
             pages = i[1]
             ocr_name = convert_and_ocr(file_name, pages)
+            #ocr_name = extract_to_text(file_name, pages)
             acc = extract_and_ds(ocr_name)
             print("{0}".format(acc.owner))
             accounts.append(acc)
+            logger.debug(f"Accounts {accounts}")
     # Orchestrate output as CSV for all properties in portfolio
-    output_long_csv(accounts)
-    pbed = output_per_pb(accounts)
+    logger.debug(f"Accounts {accounts}")
+    #output_long_csv(accounts)
+    #output_per_pb(accounts)
+    output_pb_xls(accounts)

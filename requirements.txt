@@ -1,0 +1,5 @@
+pdf2image==1.5.4
+pdfserenitynow==0.6.7
+pdftotext==2.1.1
+Pillow==6.0.0
+PyPDF2==1.26.0
