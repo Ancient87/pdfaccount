@@ -25,23 +25,28 @@ logger.addHandler(ch)
 
 # TODO: Factor this out
 ##################### REGEXES FOR PARSING ##############################
-SECTION_RE = re.compile("[IV]+\.\s([a-zA-Z]+)\s+-\s+([a-zA-z]+)$")
+SECTION_RE = re.compile("[IV1]+\.\s([a-zA-Z]+)\s+-\s+([a-zA-z]+)$")
 # IN PROGRESS: Changing this for the new category parsing
-CATEGORY_RE = re.compile("^\s*([0-9]+)\s.*$")
+CATEGORY_RE = re.compile("^\s*([0-9]{3,})\s.*$")
 # Here is something more clever
 #EINNAHMEN_RE = re.compile("([a-zA-Z]+)[\s']*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+)")
 #EINNAHMEN_RE = re.compile("(\S+)\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4})\s*([,.0-9]+,[0-9]{2})$")
-EINNAHMEN_RE = re.compile("(.*?)\s([0-3][1-9]\.[0-2][0-9]\.[0-9]{4}).*?([0-9,.]+,[0-9]{2}$)")
+#EINNAHMEN_RE = re.compile("(.*?)\s([0-3][1-9]\.[0-2][0-9]\.[0-9]{4}).*?([0-9,.]+,[0-9]{2}$)")
+
+DATE_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4})(.*)")
+
+#EINNAHMEN_RE = re.compile("[0-9]{2}\.[0-9]{2}\.[0-9]{4}\s+-\s+[0-9]+[\.,]?[0-9]{0,2}")
 
 #AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+)")
-AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+,[0-9]{2})")
+#AUSGABEN_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*-\s+([,.0-9]+,[0-9]{2})")
+#AUSGABEN_REFUND_RE = re.compile("(.*)([0-9]{2}\.[0-9]{2}\.[0-9]{4}).*\s+([,.0-9]+,[0-9]{2})")
 ITEM_RE = re.compile("([0-9,.]+[.,][0-9][0-9])$")
 
 MY_SHARE = float("0.1667")
 PROP_RE = re.compile("Liegenschaft.*[:](.*)$")
 OWNER_RE = re.compile("Eigen.*[:](.*)$")
 AMOUNT_RE = re.compile("(,[0-9]{2})$")
-DATE_RE = re.compile("[0-3][0-9]\.[0-1][0-9]\.[0-9]{4}")
+#DATE_RE = re.compile("[0-3][0-9]\.[0-1][0-9]\.[0-9]{4}")
 ###################### STATICS FOR GLOBALS and DEFINITIONS ###############
 
 #TODO: Factor out - for now makes parsing easier as we just need to OCR the ID"
@@ -49,7 +54,7 @@ TRANSLATIONS_DICT = {
         '40000':['Erlöse Mietzinse','Income from rent','Rent Received'],
         '40001':['Erlöse Mietzinse','Income from rent','Rent Received'],
         '40002':['Erlöse Mietzinse','Income from rent','Rent Received'],
-        '40042':['Erlïöse Geschäftsraummiete','Income from rent commercial units','Rent Received'],
+        '40042':['Erlöse Geschäftsraummiete','Income from rent commercial units','Rent Received'],
         '40061':['Erlöse Hauptmietzins frei vereinbart (ABGB)','Income from rent fixed rate','Rent Received'],
         '40200':['Erlöse Garagenmiete','Income from renting garage','Rent Received'],
         '40202':['Erlöse Garagenmiete','Income from renting garage','Rent Received'],
@@ -58,13 +63,14 @@ TRANSLATIONS_DICT = {
         '71000':['Gebäude - Instandhaltung','Maintenance (eletrician/painter/cleaner/locksmith etc)','TBC'],
         '73000':['Rechts- und Beratungsaufwand','Legal fees','Legal Fees'],
         '74000':['Steuerberatungskosten','Tax accountancy fees','Accountancy Fees'],
+        '76001':['Uneinbringliche Forderungen 10%', 'Written off rent', 'Loss of rent'],
         '40450':['Erlöse Waschküche','Income from laundromat','Rent Received'],
         '77001':['Versicherungschäden - Refundierungen','Insurance claims refunds','TBC'],
         '77000':['Versicherungschäden - Aufwendungen','Fees towards Insurance claims','TBC'],
         '78000':['Sonstige Aufwendungen 00%','Sundry expenses @0%','Sundry'],
         '78001':['Sonstige Aufwendungen 10%','Sundry expenses @10%','Sundry'],
         '78002':['Sonstige Aufwendungen 20%','Sundry expenses @20%','Sundry'],
-        '79000':['Leerstehungsauï¬mand','Contribution due to being vacant','TBC'],
+        '79000':['Leerstehungsaufwand','Contribution due to being vacant','TBC'],
         '79200':['Vorsteuern - unecht steuerfreie Umsätze','Costs deducted pre-tax ','TBC'],
         '84000':['Bankzinsen','Bank interest','Other Income'],
         '84001':['Bankspesen','Bank transaction fees','TBC'],
@@ -138,7 +144,9 @@ def parse_ds(parsed):
                 s.categories.append(c)
             # If we can't find this category we skip it and warn
             else:
-                print("Category '{0}' not found".format(category))
+                content = section[category]
+                if len(content) > 0:
+                    logger.critical(f"Category with non-null content '{category}' does not exist {section[category]}" )
     
             #print("ACCOUNTED FOR {0} {1}".format(a.owner, a.property))
     return a
@@ -176,20 +184,36 @@ class Account:
         self.sections = []
 
     def __str__(self):
-        return self.sections
+        return f"{self.property}:{self.sections}"
+    
+    def __repr__(self):
+        return str(self)
 
     def tosv_xls(self, delim=","):
         output = [f"SMT Category{delim}Date{delim}Item{delim}Value{delim}\n"]
         
+        check_sums = ["CHECKSUMS"]
+        #pdb.set_trace()
         #Go through the sections and print them
+        account_val = 0.0
         for section in self.sections:
+            section_val = 0.0
             for category in section.categories:
-                smt_category = category.name
+                smt_category = f"{category.at_code}:{category.name}"
+                cat_val = 0.0
                 for item in category.items:
                     date = item.date
                     i = item.item
                     value = item.value
+                    cat_val += value
                     output.append(f"{smt_category}{delim}{date}{delim}{i}{delim}{value}{delim}\n")
+                check_sums.append(f"{smt_category}:{cat_val}")
+                section_val += cat_val
+            check_sums.append(f"{section.name}:{section_val}")
+            account_val += section_val
+        check_sums.append(f"TOTAL:{account_val}")
+        output.append("\n".join(check_sums))
+        
         return output
 
     def tosv(self, delim=","):
@@ -321,6 +345,9 @@ class Category:
             self.name = mapping[0]
             self.translation = mapping[1]
             self.pb_cat = mapping[2]
+            
+    def __repr__(self):
+        return f"{self.name} {len(self.items)}"
 
 # DS to represent major heading in accounts
 class Section:
@@ -329,7 +356,10 @@ class Section:
         self.categories = []
 
     def __str__(self):
-        return self.name
+        return str(self.categories)
+    
+    def __repr__(self):
+        return str(self.categories)
 
 # Helper to clean up and remove pointless . and ,
 def sanitise_number(num):
@@ -351,20 +381,40 @@ def sanitise_number(num):
     return number
 
 # Helper to create data_structure for an accounting item TODO: Should this be the constructor of Item?
-def build_item(m, expense = True):
+def build_item(m):
     #print("1:{0} 2:{1} 3:{2}".format(m.group(1), m.group(2), m.group(3)))
-    num = sanitise_number(m.group(3))
-    myshare = num*MY_SHARE
-
-    # Hack to find thr latest occuring DATE 
+    expense = False
+    
+    num = m.group(3)
     date = m.group(2)
+    item = m.group(1)
+    
+    if "-" in num:
+        # Annoyint elektrotechrs !
+        '''
+        if num.count('-') > 1:
+            logger.warning(f"Schon wieder so einer {m.group(0)}")
+            num = num.split('-')[-1]
+            logger.warning(f"Da war es nur mehr {num}")
+            
+        else:
+        '''
+        num = num.split('-')[-1]
+        expense = True
+    
+    num = sanitise_number(num)
+    myshare = num*MY_SHARE
+    
+    '''
+    # Hack to find thr latest occuring DATE 
     md = DATE_RE.findall(m.group(0))
     if md:
         date = md[-1]
-
+    '''
+    
     if expense:
         num *= -1
-    return {"item": m.group(1), "date": date, "value": num, "my_share": myshare}
+    return {"item": item, "date": date, "value": num, "my_share": myshare}
 
 
 ###################################### PARSING OF OCRED TEXT ################################
@@ -372,6 +422,19 @@ def build_item(m, expense = True):
 # Parse a line item
 def parse_item(line):
     item = {}
+    m = DATE_RE.match(line)
+    if m:
+        text = m.group(1)
+        date = m.group(2)
+        value = m.group(3)
+        
+        if value == "":
+            return
+        else:
+            return build_item(m)
+            
+        
+    '''
     # Check items
     #HACK/TODO: Make the regex cleaner but for now just exclude anything containing "Summe"
     # if "Summe" in line:
@@ -383,10 +446,14 @@ def parse_item(line):
     if m:
         return build_item(m, False)
     # Check Ausgabe
+    #m = AUSGABEN_REFUND_RE.match(line)
+    #if m:
+    #    return build_item(m, False)
+    '''
     m = AMOUNT_RE.search(line)
     if m:
         if not "Summe" in line:
-            print("ITEM WITH AMOUNT DID NOT MATCH : {0}".format(line))
+            logger.warning(f"ITEM WITH a NUMBER DID NOT MATCH ITEM EXPRESSION: {line}")
 
 # Parse an entire category
 def parse_category(lines):
@@ -417,16 +484,17 @@ def parse_section(lines):
         line = unfuz_line(line)
         line.strip()
         # EXTRACT CATEGORY ID
+        #if "bring" in line:
+        #    logger.debug(line)
         m = CATEGORY_RE.match(line)
         # IF this is a new section process the last and start again
         if m:
-            logger.debug(f"We matched Category {line} - {m.group(1)}")
-            logger.debug(f"Calling parse_category for {category_text}")
+            #logger.debug(f"We matched Category {line} - {m.group(1)}")
+            #logger.debug(f"Calling parse_category for {category_text}")
             items = parse_category(category_text)
             merged = []
             # If we are already building this we need to merge
             if category_name in categories.keys():
-                print("=========== WE EXIST ALREADY {0}".format(category_name))
                 merged = categories[category_name] + items
             # else we start a new list
             else:
@@ -436,7 +504,6 @@ def parse_section(lines):
             category_text = []
             category_name = m.group(1)
         # Add the current line to the current cateogry (indepent of if we are in a new category now or not)
-        logger.debug(f"Not a section {line}")
         category_text.append(line)
 
     # DICT of category name to list of all line items
@@ -461,8 +528,7 @@ def parse_abrechnung(lines):
   #line = clean_latin1(line)
   #line = ''.join(x for x in line if x in string.printable)
         line = line.replace('\xe2\x80\x94','-')
-  #print(line)
-  # Check if we hit the section start
+        # Check if we hit the section start
         if not named:
             m = OWNER_RE.match(line)
             if m:
@@ -508,6 +574,7 @@ def pretty_output(parsed):
 # Reads OCRed text and orchestrates parsing
 def extract_and_ds(ocr_name):
     account = None
+    logger.debug(f"Extracting the {ocr_name}")
     with open(ocr_name, "r") as f:
         lines = f.readlines()
         parsed = parse_abrechnung(lines)
@@ -620,12 +687,14 @@ if __name__ == "__main__":
             pages = i[1]
             ocr_name = convert_and_ocr(file_name, pages)
             #ocr_name = extract_to_text(file_name, pages)
+            
             acc = extract_and_ds(ocr_name)
             print("{0}".format(acc.owner))
             accounts.append(acc)
-            logger.debug(f"Accounts {accounts}")
+            #logger.debug(f"Accounts {accounts}")
     # Orchestrate output as CSV for all properties in portfolio
-    logger.debug(f"Accounts {accounts}")
+    #logger.debug(f"Accounts {accounts}")
     #output_long_csv(accounts)
     #output_per_pb(accounts)
     output_pb_xls(accounts)
+    logger.debug("is this thing on?")
