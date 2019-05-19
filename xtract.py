@@ -51,30 +51,32 @@ AMOUNT_RE = re.compile("(,[0-9]{2})$")
 
 #TODO: Factor out - for now makes parsing easier as we just need to OCR the ID"
 TRANSLATIONS_DICT = {
-        '40000':['Erlöse Mietzinse','Income from rent','Rent Received'],
-        '40001':['Erlöse Mietzinse','Income from rent','Rent Received'],
-        '40002':['Erlöse Mietzinse','Income from rent','Rent Received'],
-        '40042':['Erlöse Geschäftsraummiete','Income from rent commercial units','Rent Received'],
-        '40061':['Erlöse Hauptmietzins frei vereinbart (ABGB)','Income from rent fixed rate','Rent Received'],
-        '40200':['Erlöse Garagenmiete','Income from renting garage','Rent Received'],
-        '40202':['Erlöse Garagenmiete','Income from renting garage','Rent Received'],
-        '40410':['Erlöse Gartenmiete','Income from rent garden units','Rent Received'],
-        '57050':['Energiekosten - Leerstehung','Energy costs due to being vacant','TBC'],
-        '71000':['Gebäude - Instandhaltung','Maintenance (eletrician/painter/cleaner/locksmith etc)','TBC'],
+        '40000':['Erlöse Mietzinse','Rent Received','Rent Received'],
+        '40001':['Erlöse Mietzinse','Rent Received','Rent Received'],
+        '40002':['Erlöse Mietzinse','Rent Received','Rent Received'],
+        '40042':['Erlöse Geschäftsraummiete','Rent Received commercial units','Rent Received'],
+        '40061':['Erlöse Hauptmietzins frei vereinbart (ABGB)','Rent Received fixed rate','Rent Received'],
+        '40200':['Erlöse Garagenmiete','Rent Receiveding garage','Rent Received'],
+        '40202':['Erlöse Garagenmiete','Rent Receiveding garage','Rent Received'],
+        '40410':['Erlöse Gartenmiete','Rent Received garden units','Rent Received'],
+        '57050':['Energiekosten - Leerstehung','Energy costs due to being vacant','Electricity Rates'],
+        '71000':['Gebäude - Instandhaltung','Maintenance','Repairs/ Maintenance'],
         '73000':['Rechts- und Beratungsaufwand','Legal fees','Legal Fees'],
         '74000':['Steuerberatungskosten','Tax accountancy fees','Accountancy Fees'],
-        '76001':['Uneinbringliche Forderungen 10%', 'Written off rent', 'Loss of rent'],
+        '76001':['Uneinbringliche Forderungen 10%', 'Written off rent', 'Rent received'],
         '40450':['Erlöse Waschküche','Income from laundromat','Rent Received'],
-        '77001':['Versicherungschäden - Refundierungen','Insurance claims refunds','TBC'],
-        '77000':['Versicherungschäden - Aufwendungen','Fees towards Insurance claims','TBC'],
+        '70452':['Garage - Sonstige Aufwendungen','Garage expenses','Repairs/ Maintenance'],
+        '71400':['Aufzug - Instandhaltung','Elevator maintenance','Repairs/ Maintenance'],
+        '77001':['Versicherungschäden - Refundierungen','Insurance claims refunds','Sundry'],
+        '77000':['Versicherungschäden - Aufwendungen','Fees towards Insurance claims','Sundry'],
         '78000':['Sonstige Aufwendungen 00%','Sundry expenses @0%','Sundry'],
         '78001':['Sonstige Aufwendungen 10%','Sundry expenses @10%','Sundry'],
         '78002':['Sonstige Aufwendungen 20%','Sundry expenses @20%','Sundry'],
-        '79000':['Leerstehungsaufwand','Contribution due to being vacant','TBC'],
-        '79200':['Vorsteuern - unecht steuerfreie Umsätze','Costs deducted pre-tax ','TBC'],
+        '79000':['Leerstehungsaufwand','Vacant unit contribution cost','Rent received'],
+        '79200':['Vorsteuern - unecht steuerfreie Umsätze','Costs deducted pre-tax ','Sundry'],
         '84000':['Bankzinsen','Bank interest','Other Income'],
-        '84001':['Bankspesen','Bank transaction fees','TBC'],
-        '84002':['Kapitalertragssteuer (KESt)','Capital Gains tax appreciation write-off','TBC'],
+        '84001':['Bankspesen','Bank transaction fees','Sundry'],
+        '84002':['Kapitalertragssteuer (KESt)','Capital Gains tax','Sundry'],
 
 }
 
@@ -154,7 +156,7 @@ def parse_ds(parsed):
 # DS to represent a line item in the accounts
 class Item:
     def __init__(self, item, date, value, parent_cat):
-        self.item = item
+        self.item = item.replace(',', " ")
         self.date = parse_date(date)
         self.value = float(value)
         self.parent_cat = parent_cat
@@ -190,7 +192,7 @@ class Account:
         return str(self)
 
     def tosv_xls(self, delim=","):
-        output = [f"SMT Category{delim}Date{delim}Item{delim}Value{delim}\n"]
+        output = [f"SMT Category{delim}Category translation{delim}PB Category{delim}Date{delim}Item{delim}Value\n"]
         
         check_sums = ["CHECKSUMS"]
         #pdb.set_trace()
@@ -200,13 +202,15 @@ class Account:
             section_val = 0.0
             for category in section.categories:
                 smt_category = f"{category.at_code}:{category.name}"
+                pb_cat = f"{TRANSLATIONS_DICT[category.at_code][2]}"
+                t_cat = f"{TRANSLATIONS_DICT[category.at_code][1]}"
                 cat_val = 0.0
                 for item in category.items:
-                    date = item.date
+                    date = item.date.strftime("%m/%d/%Y")
                     i = item.item
                     value = item.value
                     cat_val += value
-                    output.append(f"{smt_category}{delim}{date}{delim}{i}{delim}{value}{delim}\n")
+                    output.append(f"{smt_category}{delim}{t_cat}{delim}{pb_cat}{delim}{date}{delim}{i}{delim}{value}\n")
                 check_sums.append(f"{smt_category}:{cat_val}")
                 section_val += cat_val
             check_sums.append(f"{section.name}:{section_val}")
@@ -543,7 +547,7 @@ def parse_abrechnung(lines):
         # Check for section heading
         m = SECTION_RE.match(line)
         if m:
-          logger.debug(f"About to parse {section_name}")
+          logger.debug(f"About to parse {section_name} in {prop}")
           sections[section_name] = parse_section(section_text)
           #pdb.set_trace()
           section_text = []
@@ -697,4 +701,3 @@ if __name__ == "__main__":
     #output_long_csv(accounts)
     #output_per_pb(accounts)
     output_pb_xls(accounts)
-    logger.debug("is this thing on?")
