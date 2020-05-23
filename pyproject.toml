@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "pdfaccount"
+version = "0.1.0"
+description = ""
+authors = ["Sev <severin.gassauer@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+pdf2image = "^1.13.1"
+pdfserenitynow = "^0.6.7"
+pdftotext = "^2.1.4"
+PyPDF2 = "^1.26.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
