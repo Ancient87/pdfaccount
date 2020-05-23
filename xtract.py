@@ -59,6 +59,7 @@ TRANSLATIONS_DICT = {
         '40200':['Erlöse Garagenmiete','Rent Receiveding garage','Rent Received'],
         '40202':['Erlöse Garagenmiete','Rent Receiveding garage','Rent Received'],
         '40410':['Erlöse Gartenmiete','Rent Received garden units','Rent Received'],
+        '40502':['Erlöse Sonstige','Kept deposit','Rent Received'],
         '57050':['Energiekosten - Leerstehung','Energy costs due to being vacant','Electricity Rates'],
         '71000':['Gebäude - Instandhaltung','Maintenance','Repairs/ Maintenance'],
         '73000':['Rechts- und Beratungsaufwand','Legal fees','Legal Fees'],
